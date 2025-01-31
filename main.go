@@ -61,27 +61,29 @@ func newDNSHandler(records Records, aDelay, aaaaDelay time.Duration, authority s
 				queryType = "AAAA"
 				delay = aaaaDelay
 			}
-
-			log.Printf("%s Query for %s, replying after %v\n", queryType, q.Name, delay)
-			time.Sleep(delay)
-			if len(answers) > 0 {
-				d := q.Name
-				if cname {
-					d = strings.TrimPrefix(d, "cname.")
-				}
-				for _, ip := range answers {
-					// Check if IP is valid
-					if net.ParseIP(ip) == nil {
-						continue
+			name := q.Name
+			go func() {
+				log.Printf("%s Query for %s, replying after %v\n", queryType, name, delay)
+				time.Sleep(delay)
+				if len(answers) > 0 {
+					d := name
+					if cname {
+						d = strings.TrimPrefix(d, "cname.")
 					}
-					rr, err := dns.NewRR(fmt.Sprintf("%s %s %s", d, queryType, ip))
-					if err != nil {
-						log.Printf("Failed to create RR: %s\n", err.Error())
-						continue
+					for _, ip := range answers {
+						// Check if IP is valid
+						if net.ParseIP(ip) == nil {
+							continue
+						}
+						rr, err := dns.NewRR(fmt.Sprintf("%s %s %s", d, queryType, ip))
+						if err != nil {
+							log.Printf("Failed to create RR: %s\n", err.Error())
+							continue
+						}
+						m.Answer = append(m.Answer, rr)
 					}
-					m.Answer = append(m.Answer, rr)
 				}
-			}
+			}()
 		}
 
 		if len(authority) > 0 {
