@@ -17,56 +17,56 @@ import (
 
 func newDNSHandler(records Records, aDelay, aaaaDelay time.Duration, authority string) dns.HandlerFunc {
 	return func(w dns.ResponseWriter, r *dns.Msg) {
-		m := new(dns.Msg)
-		m.SetReply(r)
-		m.Compress = false
+		go func() {
+			m := new(dns.Msg)
+			m.SetReply(r)
+			m.Compress = false
 
-		if r.Opcode != dns.OpcodeQuery {
-			log.Printf("Got a non-query message: %v\n", r)
-			w.WriteMsg(m)
-			return
-		}
-
-		for _, q := range m.Question {
-			queryType := ""
-			answers := []string{}
-			cname := false
-			delay := time.Duration(0)
-
-			if strings.HasPrefix(q.Name, "cname.") {
-				cname = true
-				d := strings.TrimPrefix(q.Name, "cname.")
-				log.Printf("Query for %s, replying with CNAME %s\n", q.Name, d)
-				rr, err := dns.NewRR(fmt.Sprintf("%s CNAME %s", q.Name, d))
-				if err == nil {
-					m.Answer = append(m.Answer, rr)
-				}
+			if r.Opcode != dns.OpcodeQuery {
+				log.Printf("Got a non-query message: %v\n", r)
+				w.WriteMsg(m)
+				return
 			}
-			switch q.Qtype {
-			case dns.TypeA:
-				if cname && len(records.CNAMEA) > 0 {
-					answers = records.CNAMEA
-				} else {
-					answers = records.A
-				}
-				queryType = "A"
-				delay = aDelay
 
-			case dns.TypeAAAA:
-				if cname && len(records.CNAMEAAAA) > 0 {
-					answers = records.CNAMEAAAA
-				} else {
-					answers = records.AAAA
+			for _, q := range m.Question {
+				queryType := ""
+				answers := []string{}
+				cname := false
+				delay := time.Duration(0)
+
+				if strings.HasPrefix(q.Name, "cname.") {
+					cname = true
+					d := strings.TrimPrefix(q.Name, "cname.")
+					log.Printf("Query for %s, replying with CNAME %s\n", q.Name, d)
+					rr, err := dns.NewRR(fmt.Sprintf("%s CNAME %s", q.Name, d))
+					if err == nil {
+						m.Answer = append(m.Answer, rr)
+					}
 				}
-				queryType = "AAAA"
-				delay = aaaaDelay
-			}
-			name := q.Name
-			go func() {
-				log.Printf("%s Query for %s, replying after %v\n", queryType, name, delay)
+				switch q.Qtype {
+				case dns.TypeA:
+					if cname && len(records.CNAMEA) > 0 {
+						answers = records.CNAMEA
+					} else {
+						answers = records.A
+					}
+					queryType = "A"
+					delay = aDelay
+
+				case dns.TypeAAAA:
+					if cname && len(records.CNAMEAAAA) > 0 {
+						answers = records.CNAMEAAAA
+					} else {
+						answers = records.AAAA
+					}
+					queryType = "AAAA"
+					delay = aaaaDelay
+				}
+
+				log.Printf("%s Query for %s, replying after %v\n", queryType, q.Name, delay)
 				time.Sleep(delay)
 				if len(answers) > 0 {
-					d := name
+					d := q.Name
 					if cname {
 						d = strings.TrimPrefix(d, "cname.")
 					}
@@ -83,18 +83,19 @@ func newDNSHandler(records Records, aDelay, aaaaDelay time.Duration, authority s
 						m.Answer = append(m.Answer, rr)
 					}
 				}
-			}()
-		}
-
-		if len(authority) > 0 {
-			rr, err := dns.NewRR(fmt.Sprintf("%s NS %s", m.Question[0].Name, authority))
-			if err == nil {
-				m.Ns = append(m.Ns, rr)
 			}
-		}
-		m.Authoritative = true
 
-		w.WriteMsg(m)
+			if len(authority) > 0 {
+				rr, err := dns.NewRR(fmt.Sprintf("%s NS %s", m.Question[0].Name, authority))
+				if err == nil {
+					m.Ns = append(m.Ns, rr)
+				}
+			}
+			m.Authoritative = true
+
+			w.WriteMsg(m)
+		}()
+
 	}
 }
 
